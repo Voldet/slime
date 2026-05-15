@@ -1,3 +1,4 @@
+import copy
 import dataclasses
 import itertools
 import logging
@@ -498,6 +499,22 @@ class RolloutManager:
 
         result = call_rollout_fn(self.eval_generate_rollout, self.args, rollout_id, self.data_source, evaluation=True)
         data = result.data
+
+        # Apply custom_reward_post_process to eval data when rewards are dict-type
+        # (e.g. on-policy distillation returns sglang logprob responses as rewards).
+        # Two safety measures:
+        # 1. Only call post_process when rewards are dicts, avoiding crashes on scalar rewards.
+        # 2. Deep-copy samples before passing to post_process to avoid mutating debug data.
+        if self.custom_reward_post_process_func is not None:
+            for key in data.keys():
+                rewards = data[key].get("rewards", [])
+                if rewards and isinstance(rewards[0], dict):
+                    samples = data[key].get("samples", [])
+                    if samples:
+                        samples_copy = copy.deepcopy(samples)
+                        _, processed_rewards = self.custom_reward_post_process_func(self.args, samples_copy)
+                        data[key]["rewards"] = processed_rewards
+
         self._save_debug_rollout_data(data, rollout_id=rollout_id, evaluation=True)
         _log_eval_rollout_data(rollout_id, self.args, data, result.metrics)
 
