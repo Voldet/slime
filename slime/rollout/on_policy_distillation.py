@@ -1,6 +1,9 @@
+import os
+
 import aiohttp
 import torch
 
+from slime.rollout.rm_hub.math_dapo_utils import compute_score
 from slime.utils.processing_utils import encode_image_for_rollout_engine
 from slime.utils.types import Sample
 
@@ -10,7 +13,7 @@ async def reward_func(args, sample, **kwargs):
         # "text": sample.prompt + sample.response,
         "input_ids": sample.tokens,
         "sampling_params": {
-            "temperature": 0,
+            "temperature": float(os.environ.get("TEACHER_TEMPERATURE", "1.0")),
             "max_new_tokens": 0,
             "skip_special_tokens": False,
         },
@@ -58,10 +61,18 @@ def post_process_rewards(args, samples: list[Sample], **kwargs):
     for sample, t_log_probs in zip(samples, teacher_log_probs, strict=False):
         sample.teacher_log_probs = t_log_probs
 
-    # Return scalar rewards for GRPO/PPO advantage estimator
-    # For pure on-policy distillation, we use 0.0 as the task reward.
-    # The learning signal comes entirely from the OPD KL penalty.
-    # If you have task rewards, you can add them here.
-    scalar_rewards = [0.0] * len(samples)
+    # Compute task rewards (math correctness) for GRPO learning signal.
+    # OPD reverse KL penalty is applied separately in apply_opd_kl_to_advantages.
+    # Only enabled when --use-opd-task-reward is passed; otherwise pure distillation (0.0).
+    if getattr(args, "use_opd_task_reward", False):
+        task_rewards = []
+        for sample in samples:
+            if sample.label is not None:
+                result = compute_score(sample.response, sample.label)
+                task_rewards.append(result["score"])
+            else:
+                task_rewards.append(0.0)
+    else:
+        task_rewards = [0.0] * len(samples)
 
-    return scalar_rewards, scalar_rewards
+    return task_rewards, task_rewards

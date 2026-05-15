@@ -1000,6 +1000,12 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
                 help="On-policy distillation KL penalty coefficient. Default is 1.0.",
             )
             parser.add_argument(
+                "--use-opd-task-reward",
+                action="store_true",
+                default=False,
+                help="Enable task rewards (e.g. math correctness) alongside OPD KL. Only effective when --use-opd is enabled.",
+            )
+            parser.add_argument(
                 "--opd-teacher-load",
                 type=str,
                 default=None,
