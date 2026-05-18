@@ -192,6 +192,58 @@ def _build_messages(data: dict, prompt_key: str, as_conversation: bool, multimod
     return prompt
 
 
+# When label_key / eval_label_key is unset, try these JSONL keys for verifiable eval (math, etc.).
+_LABEL_FALLBACK_KEYS = (
+    "answer",
+    "Answer",
+    "solution",
+    "Solution",
+    "label",
+    "Label",
+    "ground_truth",
+    "ground_truth_answer",
+    "expected_answer",
+    "target",
+)
+
+
+def extract_row_label(data: dict, label_key: str | None) -> str | None:
+    """Read ground-truth label from one dataset row. Used for training and eval ``Sample.label``."""
+    val = None
+    if label_key is not None:
+        val = data.get(label_key)
+    else:
+        for k in _LABEL_FALLBACK_KEYS:
+            if k not in data or data[k] is None:
+                continue
+            cand = data[k]
+            if isinstance(cand, str) and not cand.strip():
+                continue
+            val = cand
+            break
+    if val is None:
+        return None
+    s = str(val).strip()
+    return s if s else None
+
+
+def backfill_sample_label_from_metadata(sample) -> None:
+    """If ``sample.label`` is missing, copy from common keys inside ``sample.metadata`` (dict)."""
+    cur = sample.label
+    if cur is not None and str(cur).strip():
+        return
+    meta = sample.metadata
+    if not isinstance(meta, dict):
+        return
+    for k in _LABEL_FALLBACK_KEYS:
+        if k not in meta or meta[k] is None:
+            continue
+        s = str(meta[k]).strip()
+        if s:
+            sample.label = s
+            return
+
+
 class Dataset:
     def __init__(
         self,
@@ -210,6 +262,7 @@ class Dataset:
         apply_chat_template_kwargs=None,
     ):
         origin_samples = []
+        did_log_label_fallback = False
         for data in read_file(path):
             # Both chat templates and multimodal inputs require conversation format (list of message dicts)
             as_conversation = apply_chat_template or (multimodal_keys is not None)
@@ -247,10 +300,20 @@ class Dataset:
             else:
                 multimodal_inputs = None
 
+            label = extract_row_label(data, label_key)
+            if label_key is None and label is not None and not did_log_label_fallback:
+                logger.info(
+                    "Prompt dataset %s: label_key not set; using per-row fields %s when present. "
+                    "Set --label-key / --eval-label-key if your answers live under a different key.",
+                    path,
+                    _LABEL_FALLBACK_KEYS,
+                )
+                did_log_label_fallback = True
+
             origin_samples.append(
                 Sample(
                     prompt=output_prompt,
-                    label=data[label_key] if label_key is not None else None,
+                    label=label,
                     metadata=metadata,
                     multimodal_inputs=multimodal_inputs,
                 )

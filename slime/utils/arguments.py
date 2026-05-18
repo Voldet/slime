@@ -701,6 +701,16 @@ def get_slime_extra_args_provider(add_custom_arguments=None):
             parser.add_argument("--eval-max-prompt-len", type=int, default=None)
             parser.add_argument("--eval-min-new-tokens", type=int, default=None)
             parser.add_argument("--eval-max-context-len", type=int, default=None)
+            parser.add_argument(
+                "--eval-verifiable-rm-type",
+                type=str,
+                default=None,
+                help=(
+                    "Rule-based reward type for eval mean-accuracy / pass@k (e.g. dapo, math, deepscaler, f1, gpqa). "
+                    "Used when the eval pipeline does not already produce scalar rewards. "
+                    "Ignored when the eval sample's metadata already sets `rm_type`. "
+                ),
+            )
 
             return parser
 
